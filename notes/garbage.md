@@ -1,0 +1,2 @@
+# Hardware supported garbage collection
+
