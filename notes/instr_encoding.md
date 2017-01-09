@@ -1,3 +1,31 @@
+## Instruction set encoding
+
+All instructions can be encoded in 128 bits though the majority of instructions fit within 64 bits.
+The mix of two instruction lengths is a trade off between fast (fixed length) instruction decoding and small code size (where variable length instructions are better).
+All instructions have 16 header bits in a common structure, where the first bit differentiates between small and big instructions.
+The following 10 bits contain the opcode of the instruction.
+The last five bits in the header are for cleaning up the stack; Consisting of a 4-bit bitmask to optionally pop any of the top four stack nodes, and one bit to clear the reference queue.
+
+Big instructions have the same structure: 16-bit header, 16 bits of instruction specific information, a 32-bit constant value (function address, heap constant address or a constructor index) and the remaining 64 bits are 8 operands.
+Depending on the instruction, the operands have different purposes: function or constructor arguments, a value to be evaluated, extra application arguments or, for case instructions, jump offsets for each case alternative.
+When the number of normal arguments plus the number of alternatives in a case instruction exceed the 8 available operands, an alternative encoding is used where the jump offsets for alternatives are fixed constants.
+The disadvantage of using fixed jump offsets is less compact binary code.
+
+Many instructions that do not need many operands can be encoded in 64 bits.
+The first category of small instructions are the ones with no operands at all, such as pushing constants or CAF references, and stores and returns of nullary nodes.
+Secondly, instructions with 5 operands or less, that require little other metadata, fit in 64 bits.
+Examples are Eval combined with a Call or Jump and Case of Eval with four or less alternatives.
+The third category of small instructions are all primitive operations, the if-with-compare and arithmetic operations.
+If the cost in speed and complexity of the instruction decoder does not become too high other instruction variants could be considered for the compact encoding.
+
+Operands are encoded in 8 bits.
+The first bit distinguishes between primitive and reference values, the second bit whether it is read from the node stack or not.
+For values read from the stack, two bits select one of the top four nodes and the next three select which element in a node is read.
+For values not read from the stack, four bits are used to index the reference or primitive queue.
+Instead of reading a value, operands can contain a four bit constant value.
+For reference values, copying/destructive reads are explicitly encoded, to have accurate live reference information for garbage collection.
+
+
 argument byte:
 ```
 7  6  5  4  3  2  1  0
