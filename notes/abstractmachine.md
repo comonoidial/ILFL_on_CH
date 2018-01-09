@@ -34,8 +34,8 @@ The question is what are the properties of an intermediate language suitable to 
    even with cheap transistors, the cost of complexity is high, especially in development and verification time
 
  * Completeness:
-   no magic primitives that know about or manipulate the internal state of the evaluator
-   thus unspecified primitives can only either pure (arithmetic) internal operations or fully external (io) operations
+   No magic primitives that know about or manipulate the internal state of the evaluator.
+   Thus unspecified primitives can only either pure (arithmetic) internal operations or fully external (io) operations.
 
 
 
@@ -53,8 +53,9 @@ and register/stack allocation of variables depends strongly on the available ins
 <!-- %% tell more about lambda calculus here -->
 
 The syntax of the untyped lambda calculus:
+```
 E ::= x | \x->E | E E
-
+```
 <!-- %% something about manipulating lambda calculus expressions -->
 beta reduction / capture free substitution
 typed lambda calculus (well typed programs do not get stuck)
@@ -85,7 +86,7 @@ Reading the App rule clockwise starting from the bottom (following the dependenc
 First we have to evaluate the function part of the application, while saving the argument expression somewhere.
 Once we have a lambda expression as control expression we substitute its binder variable in lambda body with a previously saved argument expression.
 As we arrive back at the saved argument expressions only after function part was finished evaluating, the arguments expressions form a stack.
-<!-- need a clearer argument hre for a stack -->
+<!-- need a clearer argument here for a stack -->
 A minimal abstract machine for call by name evaluation:
 ```
     Control    Stack       Rule
@@ -113,7 +114,7 @@ And substitution of a variable with an expression grows the control expression, 
 
 A partial solution for avoiding duplication is instead of substituting an expression, naming that expression and save it somewhere, and then substitute with the new name instead.
 We will call the set of saved named expressions the heap, extending the abstract machine state with a mapping from variables to expressions.
-The app_2 rule now needs to generate a fresh variable to ensure the name is a unique key in the heap, and use that fresh variable for substition by renaming.
+The app_2 rule now needs to generate a fresh variable to ensure the name is a unique key in the heap, and use that fresh variable for substitution by renaming.
 The new var rule deals with heap bound variables and replaces that variable in the control with a copy its associated expression from the heap.
 ```
     Heap      Control          Stack       Rule
@@ -195,7 +196,7 @@ E ::= x | \x->E | E x | let x = E in E
     H         let z = M in B   S           let
 ==> H[p->M]   B[z/p]           S           (fresh p)
 ```
-One minor downside of the let rule is that we have variable substition in a second place in the abstract machine, but that is problem for later.
+One minor downside of the let rule is that we have variable substitution in a second place in the abstract machine, but that is problem for later.
 <!-- %% TODO what is the relation of language E with ANF?? -->
 
 
@@ -227,7 +228,7 @@ A fully evaluated expression for updating can only be a lambda expression with n
 ==> H[p->M]      B[z/p]           S           (fresh p)
 ```
 Above abstract machine is identical to the Sestoft's mark 1 machine derived from Launchbury's natural semantics for call by need evaluation.
-We could have started with an abstract machine for lazy evaluation, but observing a step by step derivation of abstract machine operations gives more insight.
+We could have started with this abstract machine for lazy evaluation, but observing a step by step derivation of abstract machine operations gives more insight.
 
 ##### Considering eliminating substitution
 
@@ -262,7 +263,7 @@ From here on of we deviate from Sestoft's abstract machine and the family of abs
 ##### Inspecting heap bindings
 > *bound lambdas need no updating*
 
-Every time we come across a variable referring to a lambda on heap we see the following sequence of steps:
+Every time the abstract machine comes across a variable referring to a lambda on heap we observe the following sequence of steps:
 ```
     H[p->\x->L]   p       S
 ==> H             \x->L   p^U : S
@@ -317,7 +318,7 @@ A solution is to make sure we have only to deal with lambdas on the heap, by res
 E ::= x | E y | let x = B in E
 B ::= \x->E | E
 ```
-Using this restricted language and applying the optimizations mentioned above, we arrive at the following abstract machine:
+Using this restricted language and applying the heap inspecting optimization from previous section, we arrive at the following abstract machine:
 ```
     Heap             Control        Stack       Rule
 ------------------------------------------------------
@@ -339,7 +340,7 @@ Using this restricted language and applying the optimizations mentioned above, w
     H                let z=M in B   S           let
 ==> H[p->M]          B[z/p]         S           (fresh p)
 ```
-<!-- %%TODO relation to observations in Mountjoy's paper (1) -->
+<!-- %%TODO relation to observations in Mountjoy's paper (section 3) -->
 
 
 ##### Preprocessing the program for faster evaluation
@@ -348,18 +349,24 @@ We have now changed the syntax of our source expressions twice to make the abstr
 Moving work and complexity from the evaluator to the compiler seems a good idea in general.
 Thus the question arises what other helpful transformations could be done by a compiler.
 
-Applications on explicit lambdas can be substituted at compile time:
+Applications on explicit lambdas can be transformed into a let expression at compile time:
 ```
-(\x -> E) y  ~~> E[x/y]
+(\x -> E) A  ~~>  let x = A in E
 ```
-<!-- %% FIXME produce let expression instead to preserve sharing -->
-Trivial let expression can be removed by renaming:
+Trivial let expression can be removed by substituting variables:
 ```
-let x = y in E  ~~> E[x/y]
+let x = y in E  ~~>  E[x/y]
 ```
+When a let bound expressions is used once we can eliminate the let by substitution.
+Without the single use requirement substituting let expression could loose sharing, however a compiler may decide to duplicate expressions if they are small enough.  
+Also unused let expressions can be removed.
+```
+let x = B in E  ~~>  E[x/B]  (where x is used at most once in E)
+```
+
 Nested let expressions can be flattened to a chain of let expressions:
 ```
-let x = (let y = B in M) in E ~~> let y = B in let x = M in E
+let x = (let y = B in M) in E  ~~>  let y = B in let x = M in E
 ```
 The performance effects of this transformation depend on the circumstances and details of a specific implementation.
 If M is a value then we can save the update steps on the variable x, but when x is not used y has been allocated unnecessarily.
@@ -372,33 +379,46 @@ The cost tradeoff between extra allocations or extra incurred latency depends a 
 For now we choose to always flatten the lets, and leave the alternative choice as potential optimization for the code generator for a specific target.
 
 <!-- %%reference to Santos let floating -->
-let expressions can be floated out of applications
+Let expressions can be floated out of applications:
 ```
 (let x = B in E) y ~~> let x = B in E y
 ```
 This has in itself no performance effect, as it only switches the order of heap allocation and stack pushing.
 However this transformation can expose further transformations, and makes chains of applications visible which we will exploit later.
 
-The restricted expression syntax with simple subexpression becomes:
+The restricted expression syntax with simple subexpressions becomes:
 ```
 E ::= S | let x = B in E
 S ::= x | S y
 B ::= \x->E | S y
 ```
-This syntax enforces that above transformations (except for beta reduction) have been applied.
-
-The function part of an application could be restricted to variable too  let f = S in f y  however that costs a lot of extra abstract machine step and does not simplify anything.
-<!-- %%TODO discuss full laziness here?? float let out of lambda -->
-<!-- %%TODO and floating lets inwards?? -->
-
+This syntax enforces that above transformations (except for eliminating non trivial lets) have been applied.
 The abstract machine itself requires no changes to support this restricted syntax, thus we will not repeat it here.
+
+We could restrict the function part of an application to a variable ```let f = S in f y```,  however that costs a lot of extra abstract machine steps and does not simplify anything.
+
+The remaining potential transformations involve the interaction between lambdas and let expressions.
+In principle let expressions could be floated into lambdas as following:
+```
+let x = B in \y -> E  ~~>  \y -> let x = B in E
+```
+However this has no benefits and cause B to duplicated for each time the lambda is applied, thus we will not use this transformation.
+
+The other way around of floating a let out of a lambda is possible when the let bound expression does not depend on the lambda variable:
+```
+\x -> let y = B in E  ~~>  let y = B in \x -> E  (where B does not contain x)
+```
+This transformation is better known as the full laziness transformation.
+
+it helps matching the programmers intuition of evaluating a constant expression only once
+<!-- %%TODO more about full laziness and Santos -->
 
 ##### Supporting multiple arguments in applications and lambdas
 >  *handling multiple arguments at once takes less work*
 
 Lambdas and applications are in practice often nested, which make the abstract machine goes through series of the same application rules.
 By combining series of identical abstract machine steps, we allow implementations to exploit low level parallelism and have less control overhead with the reduced number of steps.
-Therefore we will generalize the source language by changing lambdas and application from having a single variable to having multiple parameters/arguments.
+Therefore we will generalize the source language by changing lambdas and applications from single variables to having multiple parameters/arguments.
 Also this solves a problem where the previous introduced restriction on lambda expressions caused a chain of single parameter lambdas to become a quite convoluted expression using extra lets and variables.
 
 Supporting multiple arguments is only a minor extension to the language, where each application and lambda has a vector of variables:
@@ -432,7 +452,7 @@ H[p->\x_m->L]       p   y_n^A : q^U : S   (m > n)
 ==> H[p->\x_m->L,
       q-> p y_n]    p   y_n^A : S
 ```
-Having to look deeper into stack is not ideal, however we will accept this minor problem for now.
+Having to look deeper into stack is not ideal, however we will accept this minor complication for now.
 
 All these changes combined yield the following abstract machine:
 ```
@@ -466,23 +486,22 @@ All these changes combined yield the following abstract machine:
 > *let lambdas bind their free variables*
 
 Inspecting the heap of non-trivial programs one will observe that many lambdas look very similar.
-The lambdas on heap originating from the same let binding in the program differ only in the usage of a few variables.
-Only the free variables within lambdas can differ between instances on the heap, as they could have been substituted in the app or let rules.
+The lambdas on heap originating from the same let binding in the program vary only in the usage of a few variables.
+Only the free variables within lambdas can differ between instances on the heap, as they might have been substituted in the app or let rules.
 
-we can extract the changing part from lambda by introducing a extra lambda parameter for each free variable and change the original lambda binding with a application of the new lambda with the free variables
-for example:
+We can extract the changing part from lambda by introducing a extra lambda parameter for each free variable, and replace the original lambda binding with a application of the new lambda with the free variables.
+For example:
 ```
 let f = \x y -> a ... y ... x ... b in ..
 ```
-where a and b are the free variables of the lambda expression
-transforms into:
+Where a and b are the free variables of the lambda expression, transforms into:
 ```
 let f' = \a' b' x y -> a' ... y ... x ... b' in
 let f = f' a b in ...
 ```
 <!-- %% TODO something about optimizing code if the new f is used in an application -->
 Now that lambda have no free variables anymore the substitution operation can skip traversing lambdas.
-And because lambda expression have no dependencies anymore, they can be floated out to the toplevel of the program.
+And because lambda expression have no dependencies anymore, they can be floated out as toplevel definitions of the program.
 We can express this in the following specialization of the language:
 ```
 P ::= def f = \x_n -> E in P | E
@@ -494,7 +513,7 @@ B ::= S y_n
     H                 def f=L in P   S           fun
 ==> H[f->L]           P              S
 ```
-%% TODO lambda lifting vs STG closures
+<!-- %% TODO lambda lifting vs STG closures -->
 
 
 ##### Annotation of partial applications
@@ -531,7 +550,7 @@ And the var_2 rule needs an extra variation for creating indirections to partial
     H[f->\x_m->L,      p              y_n^A : S
       p->f-n z_l]                         (n > 0) app_3a
 ==> H[f->\x_m->L,      L[x_m/z_l+y_n] S
-      p->f-n z_y]  
+      p->f-n z_l]  
 
     H[p->f-m x_l]      p              y_n^A : q^U : S  
 ==> H[p->f-m x_l,                        (m > n)  app_3b    
@@ -557,7 +576,8 @@ And the var_2 rule needs an extra variation for creating indirections to partial
 ```
 
 ##### Splitting lambdas from applications, separating 'code' from 'data'
-> *lambdas have written the laws of their evaluation, and let applications gather all information*
+> *lambdas have written the rules of their evaluation, and let applications gather all information*
+
 
 splitting the heap into application and lambdas
 now we need both variable application and (potential partial) known function application
@@ -652,6 +672,7 @@ as small optimization app_1 now includes fetching its function reference from th
 ==> G[f->L]        H              P              S
 ```
 Also with this abstract machine we don't need the restriction on function applications in expressions anymore:
+<!-- FIXME explain -->
 ```
 P ::= def f = \x_n -> E in P | E
 E ::= f-k y_n | x y_n | x | let x = B in E
@@ -699,7 +720,7 @@ When a function is fully applied a new environment is created with a mapping fro
     G[f->\x_m->L]  H             (p->)f-n q_l      _                r_n^A : S   app_2a
 ==> G[f->\x_m->L]  H              L                [x_m->q_l+r_n]   S
 ```
-The complete abstract machine with a local environment becomes the following:
+The complete abstract machine with a local environment is now as follows:
 ```
     Globals        Heap           Control          Environment      Stack       Rule
 ---------------------------------------------------------------------------------------
@@ -745,6 +766,11 @@ The complete abstract machine with a local environment becomes the following:
     G              H             (p->)f-m q_l      _                r_n^A : S   app_2b
 ==> G              H              f-k q_l+r_n      _                S    (m > n, k = m-n)
 ```
+This concludes our derivation of an efficient abstract machine for the lambda calculus.
+All rules now consists of only simple operations on each element of abstract machine.
+Further optimisations are possible, however they amount to adding special cases where certain rules are merged.
+It is not clear whether adding special cases yields enough performance benefits justifying the additional complexity.
+We will leave this tradeoff to concrete implementations of this abstract machine.  
 
 ### Extending the abstract machine for practical lazy functional languages
 
@@ -758,12 +784,6 @@ also many applications require communication with the world outside the program 
 
 why not encoding datatypes as functions (reference to reduceron, SAPL)
 <!-- %% TODO example with mogensen-scott encoding and explain why it is less efficient -->
-```
-P ::= def f = \x_n -> E in P | E
-E ::= f-k y_n | x y_n | C y_n | x | let x = B in E | fix f-1 y_n | case x of {A+}
-A ::= C y_n -> E | z@(C y_n) -> E | z -> E
-B ::= f-k y_n | x y_n | C y_n
-```
 ```
     Globals        Heap           Control          Environment       Stack       Rule
 ----------------------------------------------------------------------------------------
@@ -790,12 +810,21 @@ This perspective makes a lot of sense for a practical implementation, and only r
 not supporting case of case because that would require copying the environment and make a environment as stack implementation harder
 case of case translated away by using join point functions as in GHC
 
-<!-- %% TODO does restricting case argument to variables make any operation sense here? maybe leave that to alfin -->
+<!-- %% TODO does restricting case argument to variables make any operation sense here? maybe leave that to ALFIN, environment stack is an argument for this -->
 
 as patterns
 default pattern, named default
+```
+P ::= def f = \x_n -> E in P | E
+E ::= f-k y_n | x y_n | C y_n | x | let x = B in E | fix f-1 y_n | case x of {A+}
+A ::= C y_n -> E | z@(C y_n) -> E | z -> E
+B ::= f-k y_n | x y_n | C y_n
+```
+
 
 ```
+    Globals        Heap           Control          Environment       Stack       Rule
+----------------------------------------------------------------------------------------
     G              H              p->C q_m         _                 (as^M,E') : S   case_2b
 ==> G              H              A                E'[z->p,y_n->q_m] S   (z@(C y_n)->A in as)
 
@@ -812,23 +841,25 @@ default pattern, named default
 ##### Throwing and catching exceptions
 exceptions interact directly with the normal evaluation of a program, thus can not be implemented externally
 ```
- | throw x | try e catch h
+E ::= ... | throw x | try e catch h
 ```
 ```
-    G              H              try X catch h   E[h->q]    S           try
-==> G              H              X               E[h->q]    q^C : S    
+    Globals        Heap           Control         Environment  Stack       Rule
+----------------------------------------------------------------------------------------
+    G              H              try X catch h   E[h->q]      S           try
+==> G              H              X               E[h->q]      q^C : S    
 
-    G              H              throw x         E[x->p]    S           throw
-==> G              H              Except p        _          S
+    G              H              throw x         E[x->p]      S           throw
+==> G              H              Except p        _            S
 
-    G              H[q->M]        Except p        _          q^C : S     catch_1
-==> G              H              q->M            _          p^A : S
+    G              H[q->M]        Except p        _            q^C : S     catch_1
+==> G              H              q->M            _            p^A : S
 
-    G              H              (q->)M          _          q^C : S     catch_2
-==> G              H              (q->)M          _          S
+    G              H              (q->)M          _            q^C : S     catch_2
+==> G              H              (q->)M          _            S
 
-    G              H              Except p        _          X : S       unwind
-==> G              H              Except p        _          S
+    G              H              Except p        _            X : S       unwind
+==> G              H              Except p        _            S
 ```
 
 ##### Arithmetic and in/output operation
@@ -866,6 +897,7 @@ B ::= f-k y_n | x y_n
     G              H              fix f-1 y_n   E[y_n->r_n]  S           fix
 ==> G              H[p->Hole]     f-0 r_n+p     _            p^U : S     (fresh p)
 ```
+what about a fixpoint in a lazy binder???
 
 ##### Constant applicative forms
 globals/CAFs
@@ -877,7 +909,7 @@ globals/CAFs
 ==> G              H              B                E[x->p]         S
 ```
 
-##### Selectors for avoiding spaceleaks
+##### Selectors for avoiding space leaks
 Wadler's "Fixing some space leaks with a garbage collector"
 
 ```
@@ -947,12 +979,16 @@ Thus we add two extra case rules (with and without updating) to handle strict ev
 * Algebraic datatype manipulation
 * Throwing and catching exceptions
 * Arithmetic primitives and In/output operations
-* Extensions for an efficient language
+* Value recursion
+* Constant applicative form
+* Selectors
+* Update flags
+* Explicit strictness
 
 ### Comparison of design choices with other lazy FP implementations
 
 
-##### Lambdalifting and representing free variables
+##### Lambda lifting and representing free variables
 
 ##### Tail calls and join points
 let no escape in STG
