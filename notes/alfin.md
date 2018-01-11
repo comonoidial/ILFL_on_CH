@@ -1,31 +1,27 @@
-# Another Lazy Functional Intermediate Notation
+# ALFIN: Another Lazy Functional Intermediate Notation
 
-== ALFIN Another Lazy Functional Intermediate Notation ==
-
-
-= Choosing for a new intermediate language =
+##### Choosing for a new intermediate language
 
 pick best aspects from STG and GRIN
 independent of target platform
 
-= Heap representation =
-uniform header plus list of arguments
-F-nodes
-P-nodes
-C-nodes
-each arg explicitly either reference or prim value
-
-
-= Design an intermediate notation =
+### Design an intermediate notation
 only the control expression and the top of stack determine which abstract machine rule applies
 
+##### Heap representation
+uniform header plus list of arguments
+ * F-nodes
+ * P-nodes
+ * C-nodes
+each argument explicitly either reference or prim value
 
-= example program =
 
+##### Simple example program
+```
 main = sum (map double [0..10])
        where double x = x*2
 
-main = 
+main =
    e <- Store (Fn_enumFromTo' 0# 10#);
    d <- Store (P1_double);
    m <- Store (Fn_map d e);
@@ -59,16 +55,16 @@ sum' t# xs =
          s# <- Prim (intAdd t# n#);
          Jump Call (sum' s# ys)
 
-double x = 
+double x =
    (C_Int n#) <= Call (Eval x);
    d# <- Prim (intMul n# 2#);
    Return (C_Int d#)
-
-= data representation on heap and stack =
+```
+##### Data representation on heap and stack
 only nodes on heap
 nodes with attached reference on stack
 
-= basic functional constructs =
+##### Basic functional constructs
 every function returns a node in WHNF
 
 return
@@ -79,7 +75,7 @@ case
 call
 partial apply
 
-= non functional constructs =
+##### Non functional constructs
 if as specialisation of case / explicit booleans
 switch on numbers??
 primops
@@ -87,18 +83,18 @@ if / switch
 io prims
 throw / catch
 
-= additions for a practical functional language =
+##### Additions for a practical functional language
 annotations
 selectors
 cafs
 recursive lets
 
-= compiler annotation for efficiency =
+##### Compiler annotation for efficiency
 distinction between eval and fetch
 exact applications
 
-= ALFIN syntax =
-
+##### ALFIN syntax
+```
 node ::= header arg*
 
 header ::= con | fun | pap | Ind | Blackhole
@@ -148,8 +144,9 @@ match ::= rvar
         | rvar @ con rvar*
 
 salt ::= (num | Default) -> block
+```
 
-= potential for extensions = 
+##### Potential for extensions
 partially applied constructors
 annotate exact applications
 more builtin functions
@@ -158,14 +155,15 @@ floating point / vector primitives
 special calling conventions
 
 
-== From Core to ALFIN and its semantics ==
+### From Core to ALFIN and its semantics
 
-= ALFIN semantics =
+##### ALFIN semantics
+```
 <H|L|R> <heap+external|local environment|return/continuation stack>
 L = (N/r/p)*
 R = (C | Update r | RCase L as) , R
 
-I is  instruction 
+I is  instruction
 C c   call
 E     eval
 R     return/continue
@@ -211,7 +209,7 @@ R _r@_N        <H|e|Update _u, R> ~~> R _r@_N      <H'|e|R> where _v,H' = replac
 R _@_N         <H|e|Update _u, R> ~~> R _v@_N      <H'|e|R> where _v,H' = replace(H, _u, _N)
 R _N           <H|e|Catch  _h, R> ~~> R _N         <H |e|R>
 R _N           <H|e|RCase L as,R> ~~> M _N as      <H |L|R>
-R _N           <H|e|e>            ~~> <<end of program>> with result _N 
+R _N           <H|e|e>            ~~> <<end of program>> with result _N
 
 matching semantics
 M _r@(C_c _xs)  (&r@C_c &xs-> is),as <H|L|R> ~~> I is <H |r@(C_c xs),L|R>
@@ -227,12 +225,12 @@ unwinding semantics
 U  _e <H|e|Catch _h,R>  ~~> E _N <H|e|Apply _e,R>  where _N,H' = retrieve (H, _h)
 U  _e <H|e|c,R>         ~~> U _e <H|e|R>
 U  _e <H|e|e>           ~~> <<uncaught exception>> _e
-
-= lazy functional core language =
-in anf form
-explicit strictnes
+```
+##### A Lazy functional core language
+in ANF form
+explicit strictness
 monadic expressions
-
+```
 topexp ::= let var = subexp; topexp
          | letrec {var = subexp}+ topexp
          | subexp
@@ -251,10 +249,10 @@ subexp ::= var
          | prim_op arg*
          | io_prim arg*
          | try subexp catch rvar
+```
 
-
-= translation to ALFIN =
-
+##### Translation to ALFIN
+```
 toplevel expression into a statement block
 T[let x = e; y]  = x <- E[e]; T[y]
 T[s]             = R[s]
@@ -268,7 +266,7 @@ R[c xs] = Return C_c xs
 R[f xs] = Return Pm_f xs , if arity f > |xs| where m = arity f - |xs|
 R[e   ] = Jump C[e]
 
-non strict expression evaluation 
+non strict expression evaluation
 E[c xs]    = Store C_c xs
 E[f xs]    = Store Fu_f xs     , if arity f == |xs|
            = Fu_Ap_n f,xs,     , if arity f == 0 where n = |xs|
@@ -287,9 +285,9 @@ C[y xs]          = Eval y, Apply xs
 C[sel_i x]       = Eval x, Select i
 C[action xs]     = IO action xs
 C[try e catch h] = C[e], Catch h
-
-= Example evaluation =
-
+```
+##### Example program with execution
+```
 fac n# =
    s? <- Prim (<=) n# 1
    If s? Then
@@ -300,7 +298,7 @@ fac n# =
      r# <- Prim (*) n# x#
      Return (C_Int r#)
 
-C  (Call F_fac 5)                 < H | . | R > 
+C  (Call F_fac 5)                 < H | . | R >
 
              ~~>  &n, (s? <- Prim (<=) n# 1; is) = lookup(fac);
 
@@ -332,50 +330,49 @@ R  (C_Int 1)                      <H | . | RCase (m=1,s=F,n=2) {C_Int &x -> is},
 
 M  (C_Int 1) {C_Int &x -> is}     <H | m=1,s=F,n=2 | R>
              ~~>   is = r# <- Prim (*) n# x# ; Return (C_Int r#)
-             
+
 I  (&r <- Prim (*) &n &x ; is)   < H | x=1,m=1,s=F,n=2 | R >
              ~~> Res _r = runPrim (*) 2 1
 
 I  (Return (C_Int &r))            < H | r=2,m=1,s=F,n=2 | R >
-             ~~> 
+             ~~>
 
 R  (C_Int 2)                      <H | . | ******* >
+```
 
+##### Embedding ALFIN in Haskell
 
-== Embedding ALFIN in haskell ==
+### Conclusions
 
-
-== Conclusions ==
-
-= lambda lifting versus free variables in closures =
+##### Lambda lifting versus free variables in closures
 
 the choice for lambda lifting is made
 
-analyse tradeoffs with no lambda lifting and closures with free vars
+analyse tradeoffs with no lambda lifting and closures with free variables
 
 arity raising and constructor specialization introduce extra arguments
 
 
-= Reflecting on the existing intermediates. =
+##### Reflecting on the existing intermediates.
 
-ABC machine: too low level/focused on conventional procs
+ * ABC machine: too low level/focused on conventional processors
 
-STG machine: too abstract / distinction between free variables/arguments
+ * STG machine: too abstract / distinction between free variables/arguments
 
-GRIN assumes full program transformations, too 
+ * GRIN assumes full program transformations, too
 
-FLite: minimal core language with limited oppertunities to exploit optimizations
+ * FLite: minimal core language with limited opportunities to exploit optimizations
 
 
-= future work =
+##### Future work
 builtin arrays operations
 concurrency support / asynchronous exceptions
 delimited continuations
-dependent type accelaration??
+<!-- dependent type acceleration?? -->
 
 
-- Example 2 -
-
+### Large example with execution
+```
 zipWith f []     _      = []
 zipWith f _      []     = []
 zipWith f (x:xs) (y:ys) = f x y : zipWith f xs ys
@@ -413,10 +410,10 @@ plus a b =
    z# <- Prim (+) x# y#
    Return (C_Int z#)
 
-indexAt #n xs = 
+indexAt #n xs =
   Case (Eval xs)
      C_Nil -> Throw xs
-     C_Cons y ys -> 
+     C_Cons y ys ->
         ?z <- Prim (==) n# 0
         If ?z Then
            Jump (Eval y)
@@ -652,5 +649,4 @@ I (Jump (IO printInt &n))                <<H10 | n=3,xs=%0 | R0 >>
              ~~>
 C  (IO printInt 3)                       <<H10 | . | R0 >>
              ~~>   runIO (printInt 3)
-
-
+```
