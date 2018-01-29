@@ -47,7 +47,17 @@ calling conventions and how variables are implemented are other aspects in which
 while how arguments are passed to/returned from function is very important for an efficient implementation on specific processor architecture, it is conceptually an trivial thing on abstract machine level
 and register/stack allocation of variables depends strongly on the available instruction set, thus using constructs like de Bruijn encoding is a premature complication, that only shows that some variable allocation method exist
 
-<!-- %% TODO integrate these observation in introduction above -->
+<!-- %% TODO integrate these observation in introduction above or move to alfin -->
+
+assumptions/goals:
+split into simple steps that might be feasible as single instruction
+also make determining the next step simple
+try to exploit locality of memory
+avoid nested structure in favour of flat structures
+
+in the abstract machine we assume that all variables in the input program are uniquely defined, to avoid dealing with the corner cases caused by name shadowing
+our primary goal is finding an efficient execution model and not a proof of correctness  
+
 
 ##### Lambda calculus
 <!-- %% tell more about lambda calculus here -->
@@ -58,6 +68,8 @@ E ::= x | \x->E | E E
 ```
 <!-- %% something about manipulating lambda calculus expressions -->
 beta reduction / capture free substitution
+
+eta expansion
 
 free variables
 
@@ -185,8 +197,10 @@ This yields the following abstract machine:
 As an additional benefit the stack is simplified to contain only simple variables instead of arbitrary expressions.
 
 ##### Let heap allocation be explicit
+When the argument is just a variable it is not efficient to introduce an indirection on the heap to it.
 <!--  %% TODO show the inefficiency -->
-When the argument is just a variable it is not efficient to introduce an indirection on the heap to it, however avoiding that requires a extra specialized _app_1_ rules:
+
+Avoiding the useless indirection requires splitting the  _app_1_ rules in two variations:
 ```
     H         M y       S        app_1_var
 ==> H         M         y : S
@@ -194,14 +208,15 @@ When the argument is just a variable it is not efficient to introduce an indirec
 ==> H[p->N]   M         p : S    (fresh p)
 ```
 This adds the complication of having to inspect the argument of an application to determine which rule to apply.
-Alternatively we could try eliminate one of both cases by preprocessing the program so that one of them cannot occur anymore.
-We can try to restrict the argument of application to variable by rewriting it using a lambda:
+Alternatively we could try to eliminate one of both cases by preprocessing the program so that one of them cannot occur anymore.
+We attempt to restrict the argument of application to variable by rewriting it using a lambda:
 ```
 M N  ~~>  (\x -> M x) N  (unique x)
 ```
 While the argument of ```M``` is now a simple variable, we have only shifted the problem of complex arguments to the new outer application.
-Thus we need another way to distinguish both kind of applications by making it explicit in the syntax.
-We could annotate each complex application ```M N  ~~>  M@N```
+Thus we need another way to distinguish both kinds of applications by making it explicit in the syntax.
+We could add an explicit annotation to each complex application ```M N  ~~>  M@N```, but we will use a less obvious alternative with better properties instead.   
+
 A commonly used syntactic sugar (related to applications) in the lambda calculus is the let expression:
 ```
 (\x -> A) B  <~~>  let x = B in A
@@ -278,7 +293,7 @@ A fully evaluated expression for updating can only be a lambda expression with n
 ```
 Above abstract machine is identical to the Sestoft's mark 1 machine derived from Launchbury's natural semantics for call by need evaluation.
 We could have started with this abstract machine for lazy evaluation, but observing a step by step derivation of abstract machine operations gives more insight.
-That starting from a minimalistic call by name abstract machine and applying operational optimisations leads us along well known semantics and machines is both an interesting convergence and reassurance that the chosen approach works.
+Starting from a minimalistic call by name abstract machine and applying operational optimisations has lead us along well known semantics and machines, which is both an intriguing convergence and reassurance that the chosen approach works.
 
 ##### Considering eliminating substitution
 
@@ -319,7 +334,7 @@ Every time the abstract machine comes across a variable referring to a lambda on
 ==> H             \x->L   p^U : S
 ==> H[p->\x->L]   \x->L   S
 ```
-This is not efficient as we first take the lambda from the heap only to put a copy back, and create a temporary update marker.
+This is not efficient as we first take the lambda from the heap only to put a copy back, and create a temporary update marker on the stack.
 At the cost of first inspecting the heap binding we can combine these two step into a specialized _var_1_ rule:
 ```
     H[p->\x->L]   p       S
@@ -363,16 +378,23 @@ This will halt the abstract machine on encountering an empty stack and a variabl
 
 While we have optimized how we deal with heap bound lambdas, lambdas can still occur as the control expression.
 This makes the abstract machine more complex by two variations of all rules dealing with lambdas.
-And the updating in the _var_2_ rule can copy a lambda from a control expression to the heap.
-<!-- TODO research why bound lambdas in STG, cite ricardo jfp09 -->
-<!-- restricting lambdas to lets only avoids copying them from/to heap and happens to enable further optimisations  -->
+And the updating in the _var_2_ rule may need to copy a lambda from a control expression to the heap.
 
-A solution is to make sure we have only to deal with lambdas on the heap, by restricting the syntax of the language again by only allow lambdas in let bound expressions:
+A solution for this complication is to ensure that we have only to deal with lambdas on the heap.
+We achieve that by restricting the syntax of the language again, allowing lambdas only in let bound expressions:
 ```
 E ::= x | E y | let x = B in E
 B ::= \x->E | E
 ```
-Using this restricted language and applying the heap inspecting optimization from previous section, we arrive at the following abstract machine:
+
+```
+\x -> M  ~~> let f = \x -> M in f  (unique f)
+```
+<!-- TODO research why bound lambdas in STG, cite ricardo jfp09 -->
+<!-- restricting lambdas to lets only avoids copying them from/to heap and happens to enable further optimisations  -->
+<!-- %%TODO relation to observations in Mountjoy's paper (section 3) -->
+
+Using this restricted language and applying the heap inspecting optimisations from previous section, we arrive at the following abstract machine:
 ```
     Heap             Control        Stack       Rule
 ------------------------------------------------------
@@ -394,8 +416,6 @@ Using this restricted language and applying the heap inspecting optimization fro
     H                let z=M in B   S           let
 ==> H[p->M]          B[z/p]         S           (fresh p)
 ```
-<!-- %%TODO relation to observations in Mountjoy's paper (section 3) -->
-
 
 ##### Preprocessing the program for faster evaluation
 
@@ -553,10 +573,21 @@ Where a and b are the free variables of the lambda expression, transforms into:
 let f' = \a' b' x y -> a' ... y ... x ... b' in
 let f = f' a b in ...
 ```
-<!-- %% TODO something about optimizing code if the new f is used in an application -->
-Now that lambda have no free variables anymore the substitution operation can skip traversing lambdas.
+<!-- %% TODO something about multiple lambdas using (each)other(s) -->
+Now that lambda have no free variables anymore substitution operations can safely skip traversing lambdas.
+This performance benefit outweighs the costs of wrapping lambdas in free variable applications.
+I
+Because lambda expression have no dependencies anymore, they can be floated outwards.
+This increases the sharing of lambdas, thus reducing their heap allocation.
+With the free variable applications we have now more elements on the heap, but we still save memory because those extra applications are a lot smaller than the lambda expressions they replace.
+
+Not only does making free variables explicit improve performance and memory usage, it will later simplify dealing with environments and help enable code generation.
+Enabled by multiple argument support, this program transformation step is the key to an efficient abstract machine.  
+
+<!-- %% TODO say something about lambdalifting and STG here? -->
+
 <!-- %% TODO consider moving language changes to code/data split step -->
-And because lambda expression have no dependencies anymore, they can be floated out as toplevel definitions of the program.
+And because lambda expression can be floated out as toplevel definitions of the program.
 We can express this in the following specialization of the language:
 ```
 P ::= def f = \x_n -> E in P | E
@@ -828,7 +859,7 @@ This concludes our derivation of an efficient abstract machine for the lambda ca
 All rules now consists of only simple operations on each element of abstract machine.
 Further optimisations are possible, however they amount to adding special cases where certain rules are merged.
 It is not clear-cut whether adding special cases yields enough performance gains to justify the additional complexity.
-We will leave this tradeoff to concrete implementations of this abstract machine.  
+We will leave this tradeoff to a concrete implementations of this abstract machine.  
 
 ### Extending the abstract machine for practical lazy functional languages
 
@@ -892,14 +923,19 @@ case of case translated away by using join point functions as in GHC
 
 as patterns
 default pattern, named default
+
+the expression language is extended with case expression and constructor applications:
 ```
-P ::= def f = \x_n -> E in P | E
-E ::= f-k y_n | x y_n | C y_n | x | let x = B in E | fix f-1 y_n | case x of {A+}
+E ::= ... | C y_n | case x of {A+}
 A ::= C y_n -> E | z@(C y_n) -> E | z -> E
-B ::= f-k y_n | x y_n | C y_n
+B ::= ... | C y_n
 ```
+We require that all constructors are fully applied, as partial applied ones can be easily emulated with wrapped them in lambdas.
+Supporting partial applied constructors adds quite a bit of complexity whereas the potential for performance gains depends on details of a concrete implementation.
 
-
+The as-patterns and default patterns each need two rules for matching them.
+One in case the control expression has an associated heap reference which then used.
+And second case where the associated heap reference is unavailable, we need to allocate the constructor in the control expression on the heap.
 ```
     Globals        Heap           Control          Environment       Stack       Rule
 ----------------------------------------------------------------------------------------
@@ -987,9 +1023,19 @@ globals/CAFs
 ==> G              H              B                E[x->p]         S
 ```
 
-##### Selectors for avoiding space leaks
-Wadler's "Fixing some space leaks with a garbage collector"
+##### Selector thunks for avoiding space leaks
+Early implementations of lazy functional languages suffered from a kind of space leak that could not be avoided by the programmer by rewriting the program.
+This problem occurs when a function results in a tuple or record and individual elements of that result are used in multiple places.
+After the result has been evaluated it is kept alive in memory until all element selectors are evaluated, even if most elements will not used again.
+<!-- %% TODO consider small example here -->
+Wadler's solution in "Fixing some space leaks with a garbage collector" involves recognising tuple/record selectors during garbage collection, and eliminating them in case the tuple/record is in evaluated form.
+This requires that selectors are easily recognisable on the heap, thus we will add specialised expression for these cases:
+```
+case x of {(a_0,a_,1,...,a_n) -> a_i}  ~~>  x pi i
+```
+We will assume the compiler will convert all applicable case expression to selectors.
 
+The rules for manipulating selectors are derived from its corresponding case expressions, with projection markers on the stack:
 ```
     G              H              x pi n           E[x->p]    S          exp_sel
 ==> G              H              p pi n           _          S
@@ -1000,6 +1046,8 @@ Wadler's "Fixing some space leaks with a garbage collector"
     G              H             (p->)C q_m        _          n^P : S    sel_2
 ==> G              H              q!n              _          S
 ```
+<!-- %% FIXME do we need exp_sel if we restrict them to binders only? -->
+<!-- %% TODO tell why restrict selectors to variables -->
 
 ##### Update avoidance
 The machinery of updating to preserve sharing is one of larger sources of overhead in lazy evaluation.
